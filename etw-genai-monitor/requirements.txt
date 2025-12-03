@@ -1,0 +1,8 @@
+psutil
+google-generativeai
+jsonschema
+python-dateutil
+fastapi
+uvicorn[standard]
+google-genai
+numpy

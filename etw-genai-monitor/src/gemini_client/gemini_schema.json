@@ -1,0 +1,124 @@
+{
+  "name": "report_root_cause",
+  "description": "Provides structured root-cause analysis for CPU/RAM spikes using ETW-based process, network, and disk events.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+
+      "cause_summary": {
+        "type": "string",
+        "description": "A high-level explanation of the root cause."
+      },
+
+      "confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "description": "Confidence score (0.0 to 1.0) of the analysis."
+      },
+
+      "spike_type": {
+        "type": "string",
+        "enum": ["cpu", "ram", "mixed", "unknown"],
+        "description": "Type of detected resource spike."
+      },
+
+      "severity_score": {
+        "type": "number",
+        "minimum": 0,
+        "description": "Relative severity of the spike."
+      },
+
+      "resource_impact": {
+        "type": "object",
+        "properties": {
+          "cpu_spike_percent": { "type": "number" },
+          "ram_spike_percent": { "type": "number" }
+        },
+        "required": ["cpu_spike_percent", "ram_spike_percent"]
+      },
+
+      "culprit_process": {
+        "type": "object",
+        "description": "Primary process causing the spike.",
+        "properties": {
+          "pid": { "type": "integer" },
+          "name": { "type": "string" },
+          "cmdline": { "type": "string" },
+          "cpu_pct": { "type": "number" },
+          "ram_pct": { "type": "number" }
+        },
+        "required": ["pid", "name"]
+      },
+
+      "ranked_suspects": {
+        "type": "array",
+        "description": "Other processes suspected based on statistical anomaly ranking.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "pid": { "type": "integer" },
+            "name": { "type": "string" },
+            "score": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Causal likelihood score (0.0 to 1.0)."
+            },
+            "reason": { "type": "string" }
+          },
+          "required": ["pid", "name", "score"]
+        }
+      },
+
+      "net_context": {
+        "type": "object",
+        "properties": {
+          "net_event_count": { "type": "integer" },
+          "top_connections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "pid": { "type": "integer" },
+                "saddr": { "type": "string" },
+                "daddr": { "type": "string" },
+                "dport": { "type": "integer" },
+                "bytes_transferred": { "type": "number" }
+              },
+              "required": ["pid", "daddr"]
+            }
+          }
+        }
+      },
+
+      "timeline": {
+        "type": "array",
+        "description": "Key event sequence leading to spike.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "ts": { "type": "string" },
+            "pid": { "type": "integer" },
+            "event_type": { "type": "string" },
+            "details": { "type": "string" }
+          },
+          "required": ["ts", "event_type"]
+        }
+      },
+
+      "recs": {
+        "type": "array",
+        "description": "Recommended mitigation actions.",
+        "items": { "type": "string" }
+      }
+    },
+
+    "required": [
+      "cause_summary",
+      "confidence",
+      "resource_impact",
+      "culprit_process"
+    ]
+  }
+}

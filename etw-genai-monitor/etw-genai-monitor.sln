@@ -1,0 +1,29 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "windows", "windows", "{AF50D07C-CBCD-524F-DB50-1B7C7AC32620}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EtwKernelTracer", "windows\EtwKernelTracer\EtwKernelTracer.csproj", "{9098535A-6935-4672-2CB7-27614C05EE31}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{9098535A-6935-4672-2CB7-27614C05EE31}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9098535A-6935-4672-2CB7-27614C05EE31}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9098535A-6935-4672-2CB7-27614C05EE31}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9098535A-6935-4672-2CB7-27614C05EE31}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{9098535A-6935-4672-2CB7-27614C05EE31} = {AF50D07C-CBCD-524F-DB50-1B7C7AC32620}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {3980A4D0-75EF-4709-9616-B834CAD54F3C}
+	EndGlobalSection
+EndGlobal
