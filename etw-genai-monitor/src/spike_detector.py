@@ -37,15 +37,20 @@ class SpikeDetector:
         self.cooldown = timedelta(seconds=cooldown_seconds)
 
         self.last_cpu_values = deque(maxlen=derivative_len + 2)
-        self.confirm_buffer = deque(maxlen=confirm_seconds)
+
+        # ✅ FIX 1
+        self.confirm_buffer = deque(
+            maxlen=int(confirm_seconds / sample_interval)
+        )
 
         self.last_spike_time = None
+
+    # -----------------------------------------------------
 
     def add_sample(self, sample):
         self.window.append(sample)
         self.last_cpu_values.append(sample["cpu"])
 
-        # ✅ Confirm CPU OR RAM sustained spike
         self.confirm_buffer.append(
             sample["cpu"] >= self.cpu_threshold or
             sample["ram"] >= self.ram_threshold
@@ -54,7 +59,8 @@ class SpikeDetector:
     # -----------------------------------------------------
 
     def _mu_sigma(self, key="cpu"):
-        if len(self.window) < 3:
+        # ✅ FIX 2
+        if len(self.window) < 10:
             return None, None
 
         vals = [s[key] for s in self.window]
@@ -65,11 +71,12 @@ class SpikeDetector:
     def _candidate_zscore(self, key="cpu"):
         mu, sigma = self._mu_sigma(key)
 
-        if mu is None or sigma is None or sigma == 0:
+        if mu is None or sigma is None or sigma <= 0.001:
             return None
 
         threshold = mu + self.z * sigma
 
+        # Scan backwards for spike seed
         for s in reversed(self.window):
             if s[key] >= threshold:
                 return s
@@ -87,7 +94,10 @@ class SpikeDetector:
         deltas = [lv[i] - lv[i - 1] for i in range(1, len(lv))]
         tail = deltas[-self.deriv_len:]
 
-        if all(d > self.deriv_thresh for d in tail):
+        # ✅ FIX 3 — average slope instead of strict all()
+        avg_slope = sum(tail) / len(tail)
+
+        if avg_slope > self.deriv_thresh:
             start_value = lv[-(self.deriv_len + 1)]
 
             for s in reversed(self.window):
@@ -101,6 +111,7 @@ class SpikeDetector:
     def _cooldown_passed(self):
         if not self.last_spike_time:
             return True
+
         return datetime.now(timezone.utc) - self.last_spike_time > self.cooldown
 
     # -----------------------------------------------------
@@ -109,7 +120,6 @@ class SpikeDetector:
         if not self.window or not self._cooldown_passed():
             return False, {}
 
-        # ---- candidates ----
         cand_cpu = self._candidate_zscore("cpu")
         cand_ram = self._candidate_zscore("ram")
         cand_deriv = cand_cpu or self._candidate_derivative()
@@ -117,9 +127,9 @@ class SpikeDetector:
         cand = cand_cpu or cand_ram or cand_deriv
 
         if (
-            cand and
-            len(self.confirm_buffer) == self.confirm_seconds and
-            all(self.confirm_buffer)
+            cand
+            and len(self.confirm_buffer) == self.confirm_buffer.maxlen
+            and all(self.confirm_buffer)
         ):
             latest = self.window[-1]
 
@@ -133,12 +143,11 @@ class SpikeDetector:
 
             severity = max(
                 0.0,
-                (latest["cpu"] - self.cpu_threshold) +
-                (latest["ram"] - self.ram_threshold)
+                (latest["cpu"] - self.cpu_threshold)
+                + (latest["ram"] - self.ram_threshold)
             )
 
             self.last_spike_time = datetime.now(timezone.utc)
-
             self.confirm_buffer.clear()
 
             info = {

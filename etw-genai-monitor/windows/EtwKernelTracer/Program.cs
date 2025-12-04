@@ -1,6 +1,8 @@
 using System;
 using System.Text.Json;
+using System.Collections;
 using System.Collections.Generic;
+using System.Net;
 
 using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Parsers;
@@ -10,12 +12,20 @@ class Program
 {
     static void Main(string[] args)
     {
-        using var session = new TraceEventSession("GenAI-Kernel-Session");
+        using var session = new TraceEventSession(
+            $"GenAI-Kernel-{Guid.NewGuid()}"
+        );
 
         session.StopOnDispose = true;
-        Console.CancelKeyPress += delegate {
+
+        Console.CancelKeyPress += delegate
+        {
             session.Stop();
         };
+
+        // --------------------------------------------------
+        // KERNEL PROVIDERS
+        // --------------------------------------------------
 
         session.EnableKernelProvider(
             KernelTraceEventParser.Keywords.Process |
@@ -45,12 +55,14 @@ class Program
         // --------------------------------------------------
         // PROCESS
         // --------------------------------------------------
+
         kernel.ProcessStart += evt => Emit(evt, "process_start");
-        kernel.ProcessStop  += evt => Emit(evt, "process_stop");
+        kernel.ProcessStop += evt => Emit(evt, "process_stop");
 
         // --------------------------------------------------
         // NETWORK
         // --------------------------------------------------
+
         kernel.TcpIpSend += evt =>
             Emit(evt, "tcp_send", new { net_bytes = evt.size });
 
@@ -60,6 +72,7 @@ class Program
         // --------------------------------------------------
         // DISK
         // --------------------------------------------------
+
         kernel.FileIORead += evt =>
             Emit(evt, "file_read", new { disk_bytes = evt.IoSize });
 
@@ -69,6 +82,7 @@ class Program
         // --------------------------------------------------
         // THREAD + CONTEXT SWITCH + OTHER EVENTS
         // --------------------------------------------------
+
         session.Source.AllEvents += evt =>
         {
             if (evt.ProviderGuid == KernelTraceEventParser.ProviderGuid)
@@ -91,7 +105,6 @@ class Program
                 }
                 else
                 {
-                    // generic kernel events (memory, profiling, etc.)
                     Emit(evt, evt.EventName);
                 }
             }
@@ -104,22 +117,82 @@ class Program
         session.Source.Process();
     }
 
-    // ==================================================
-    // ✅ FULL TELEMETRY JSON OUTPUT
-    // ==================================================
+    // ===========================================================
+    // ✅ SAFE PAYLOAD NORMALIZER (NO JSON CRASH POSSIBLE)
+    // ===========================================================
+
+    static object? SafeValue(object? val)
+    {
+        if (val == null)
+            return null;
+
+        // JSON-safe primitives
+        if (val is string ||
+            val is bool ||
+            val is byte || val is short || val is int || val is long ||
+            val is float || val is double || val is decimal ||
+            val is Guid ||
+            val is DateTime ||
+            val is DateTimeOffset)
+            return val;
+
+        // ✅ IPAddress safely converted
+        if (val is IPAddress ip)
+            return ip.ToString();
+
+        // ✅ byte[] safety
+        if (val is byte[] bytes)
+            return Convert.ToBase64String(bytes);
+
+        // ✅ Enum → name
+        if (val.GetType().IsEnum)
+            return val.ToString();
+
+        // ✅ IEnumerable handling (except strings)
+        if (val is IEnumerable enumerable && !(val is string))
+        {
+            var list = new List<object?>();
+
+            foreach (var item in enumerable)
+            {
+                list.Add(SafeValue(item));
+            }
+
+            return list;
+        }
+
+        // ✅ Final safety fallback
+        return val.ToString();
+    }
+
+    // ===========================================================
+    // ✅ SAFE EVENT EMITTER
+    // ===========================================================
+
     static void Emit(TraceEvent evt, string eventType, object? extra = null)
     {
         var payload = new Dictionary<string, object?>();
 
         foreach (var name in evt.PayloadNames)
         {
-            payload[name] = evt.PayloadByName(name);
+            try
+            {
+                payload[name] = SafeValue(evt.PayloadByName(name));
+            }
+            catch
+            {
+                payload[name] = null;
+            }
         }
 
         var obj = new
         {
-            // ---- TIME ----
-            ts = evt.TimeStamp.ToUniversalTime().ToString("o"),
+            //═══════════════════════════════════════
+            // ✅ REALTIME UI TIMESTAMP
+            //═══════════════════════════════════════
+            ts = DateTime.UtcNow.ToString("o"),
+
+            // Kernel precision timeline
             ts_rel_ms = evt.TimeStampRelativeMSec,
 
             // ---- PROCESS / THREAD ----
@@ -158,7 +231,7 @@ class Program
             disk_bytes = extra?.GetType().GetProperty("disk_bytes")?.GetValue(extra),
             new_pid = extra?.GetType().GetProperty("new_pid")?.GetValue(extra),
             new_tid = extra?.GetType().GetProperty("new_tid")?.GetValue(extra),
-            reason   = extra?.GetType().GetProperty("reason")?.GetValue(extra),
+            reason   = extra?.GetType().GetProperty("reason")?.GetValue(extra)
         };
 
         Console.WriteLine(JsonSerializer.Serialize(obj));

@@ -1,136 +1,122 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { Routes, Route, Link } from "react-router-dom";
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+  Brush,
+} from "recharts";
 import SpikeDetail from "./SpikeDetail";
-import LiveEvents from "./LiveEvents";
 
-/* -----------------------------------
- * HELPER FUNCTIONS
- * ----------------------------------- */
+/* ==================================================
+   CONFIG / COLORS
+================================================== */
 
-function formatTimestamp(isoString) {
-  if (!isoString) return "N/A";
-  try {
-    const date = new Date(isoString);
-    if (isNaN(date.getTime())) return isoString;
+const PRIMARY = "#43B02A";
+const SECONDARY = "#9CA3AF";
+const CPU_COLOR = "#34D399";
+const RAM_COLOR = "#60A5FA";
+const SPIKE_COLOR = "#F97316";
 
-    const timeOnly = date.toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
-    const dateOnly = date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    });
-    return `${dateOnly} @ ${timeOnly}`;
-  } catch {
-    return isoString;
-  }
-}
+const BASE_BG = "#0A0A0A";
+const CARD_BG = "#1A1A1A";
+const BORDER_COLOR = "#333";
 
-const getRcaPillStyle = (isResolved) =>
-  isResolved ? pillStyle("success") : pillStyle("pending");
+/* ==================================================
+   TIME UTILS
+================================================== */
 
-/* -----------------------------------
- * COMPONENTS
- * ----------------------------------- */
+const parseTs = (t) => (isNaN(new Date(t)) ? null : new Date(t));
+
+const formatTime = (t) =>
+  parseTs(t)?.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }) || "";
+
+/* ==================================================
+   DASHBOARD
+================================================== */
 
 function DashboardView() {
+  const [telemetry, setTelemetry] = useState([]);
   const [spikes, setSpikes] = useState([]);
   const [latestRca, setLatestRca] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
 
-  const fetchData = useCallback(async () => {
-    if (spikes.length === 0 && !error) setLoading(true);
+  /* ------------------------------
+     LIVE POLLING
+  ------------------------------- */
 
+  const pollData = useCallback(async () => {
     try {
-      const [spikesRes, rcaRes] = await Promise.all([
+      const [t, s, r] = await Promise.all([
+        fetch("/api/telemetry/window?seconds=60"),
         fetch("/api/spikes"),
         fetch("/api/latest-rca"),
       ]);
 
-      if (!spikesRes.ok)
-        throw new Error(`Spikes API error! Status: ${spikesRes.status}`);
-      if (!rcaRes.ok)
-        throw new Error(`RCA API error! Status: ${rcaRes.status}`);
+      if (!t.ok || !s.ok || !r.ok) throw new Error("API failure");
 
-      const spikesJson = await spikesRes.json();
-      const rcaJson = await rcaRes.json();
+      const telemetryJson = await t.json();
+      const spikesJson = await s.json();
+      const rcaJson = await r.json();
 
-      const sortedSpikes = (spikesJson.spikes || []).sort(
-        (a, b) =>
-          new Date(b.detected_at) - new Date(a.detected_at)
+      setTelemetry(telemetryJson.samples || []);
+      setSpikes(
+        (spikesJson.spikes || []).sort(
+          (a, b) => new Date(b.detected_at) - new Date(a.detected_at)
+        )
       );
 
-      setSpikes(sortedSpikes);
       setLatestRca(rcaJson.latest_rca || null);
-      setError(null);
-    } catch (e) {
-      console.error("Dashboard fetch failed:", e);
-      setError(
-        `Failed to fetch dashboard data. Check console for details. (Error: ${e.message})`
-      );
-    } finally {
-      setLoading(false);
+    } catch (err) {
+      console.error("Polling error:", err);
     }
-  }, [spikes.length, error]);
+  }, []);
 
   useEffect(() => {
-    fetchData();
-    const id = setInterval(fetchData, 5000);
-    return () => clearInterval(id);
-  }, [fetchData]);
+    pollData();
+    const t = setInterval(pollData, 1000);
+    return () => clearInterval(t);
+  }, [pollData]);
+
+  const last = telemetry.at(-1) || { cpu: 0, ram: 0 };
 
   return (
-    <div style={rootStyle}>
-      {/* ================= HERO & STATUS ================= */}
-      <header style={heroWrap}>
+    <div style={{ background: BASE_BG, minHeight: "100vh", color: "#fff", padding: "2rem" }}>
+      {/* HEADER */}
+      <header style={headerStyle}>
         <div>
-          <h1 style={titleStyle}>ETW GenAI Kernel Monitor</h1>
-          <p style={subtitleStyle}>
-            Live CPU & RAM spike detection · ETW-powered RCA · Powered by Gemini
-            2.5 Flash
+          <h1 style={{ margin: 0 }}>ETW GenAI Kernel Monitor</h1>
+          <p style={{ color: SECONDARY }}>
+            Live CPU & RAM · Spike Detection · RCA AI
           </p>
         </div>
 
-        <div style={statusChip}>
-          <span style={pulseDot} />
-          <span style={{ marginLeft: "4px" }}>LIVE</span>
+        <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
+          <StatBadge label="CPU" val={`${last.cpu?.toFixed(1)}%`} color={CPU_COLOR} />
+          <StatBadge label="RAM" val={`${last.ram?.toFixed(1)}%`} color={RAM_COLOR} />
+
+          <div style={liveBadgeStyle}>LIVE</div>
         </div>
       </header>
 
-      {/* ================= LOADING / ERROR ================= */}
-      {(loading || error) && (
-        <div style={infoBox(error ? "error" : "info")}>
-          {loading && <p>Loading telemetry and configuration data...</p>}
-          {error && <p>API Error: {error}</p>}
-        </div>
-      )}
+      {/* CHART */}
+      <ChartCard telemetry={telemetry} spikes={spikes} />
 
-      {/* ================= MAIN GRID ================= */}
+      {/* GRID */}
       <div style={gridStyle}>
-        {/* ================= SPIKES ================= */}
-        <div style={cardStyle}>
-          <h2 style={cardTitle}>
-            <span style={titleIcon}>📊</span> Spike History
-          </h2>
-          <SpikeTable spikes={spikes} loading={loading} />
-        </div>
-
-        {/* ================= RCA ================= */}
-        <div style={cardStyle}>
-          <h2 style={cardTitle}>
-            <span style={titleIcon}>🧠</span> Latest RCA
-          </h2>
-          <RcaPanel latestRca={latestRca} loading={loading} />
-        </div>
+        <SpikeTable spikes={spikes} />
+        <RcaPanel latestRca={latestRca} />
       </div>
 
-      <div style={{ margin: "2.5rem 0" }}>
-        <LiveEvents />
-      </div>
-
+      {/* FOOTER */}
       <footer style={footerStyle}>
         Built by Mokshith · Deloitte Innovation
       </footer>
@@ -138,181 +124,226 @@ function DashboardView() {
   );
 }
 
-function SpikeTable({ spikes, loading }) {
-  if (loading) return null;
+/* ==================================================
+   STAT BADGE
+================================================== */
 
-  if (spikes.length === 0)
-    return <p style={mutedText}>No spikes detected yet. Monitoring is active.</p>;
+const StatBadge = ({ label, val, color }) => (
+  <div style={{ background: color + "22", color, padding: "6px 14px", borderRadius: "10px", fontWeight: 700 }}>
+    {label}: {val}
+  </div>
+);
 
-  return (
-    <div style={tableWrap}>
-      <table style={tableStyle}>
-        <thead>
-          <tr>
-            <th style={thStyle}>ID</th>
-            <th style={thStyle}>Detected Time</th>
-            <th style={thStyle}>Max CPU%</th>
-            <th style={thStyle}>Max RAM%</th>
-            <th style={thStyle}>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {spikes.map((s) => (
-            <tr key={s.id} style={rowStyle}>
-              <td style={tdStyle}>
-                <Link style={linkStyle} to={`/spike/${s.id}`}>
-                  #{s.id}
-                </Link>
-              </td>
-              <td style={tdStyle}>{formatTimestamp(s.detected_at)}</td>
-              <td style={tdStyle}>
-                <span style={highlightData("cpu")}>
-                  {s.cpu_at_confirm?.toFixed(1)}%
-                </span>
-              </td>
-              <td style={tdStyle}>
-                <span style={highlightData("ram")}>
-                  {s.ram_at_confirm?.toFixed(1)}%
-                </span>
-              </td>
-              <td style={tdStyle}>
-                <span style={getRcaPillStyle(!!s.rca)}>
-                  {s.rca ? "RESOLVED" : "PENDING"}
-                </span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
+/* ==================================================
+   CHART PANEL
+================================================== */
 
-function RcaPanel({ latestRca, loading }) {
-  if (loading) return null;
+const ChartCard = ({ telemetry, spikes }) => {
+  const spikeTimes = new Set(spikes.map((s) => formatTime(s.detected_at)));
 
-  if (!latestRca)
-    return (
-      <p style={mutedText}>Awaiting a confirmed spike for analysis…</p>
-    );
+  const data = useMemo(() => {
+    return telemetry.map((p) => ({
+      t: formatTime(p.ts),
+      cpu: p.cpu,
+      ram: p.ram,
+      spike: spikeTimes.has(formatTime(p.ts)),
+    }));
+  }, [telemetry, spikes]);
 
-  const culprit = latestRca.culprit_process;
-  const impact = latestRca.resource_impact;
+  if (!data.length) return null;
 
   return (
-    <div style={stack}>
-      <section>
-        <h3 style={subTitleStyle}>
-          <span style={subTitleIcon}>📝</span>
-          Root Cause Summary
-        </h3>
+    <div style={cardStyle}>
+      <h2 style={{ marginBottom: "0.8rem" }}>📊 Live System Telemetry</h2>
 
-        <p style={bodyText}>{latestRca.cause_summary}</p>
+      <ResponsiveContainer width="100%" height={280}>
+        <AreaChart data={data}>
+          <defs>
+            <linearGradient id="cpuGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={CPU_COLOR} stopOpacity={0.9} />
+              <stop offset="100%" stopColor={CPU_COLOR} stopOpacity={0.15} />
+            </linearGradient>
 
-        <p style={confidenceText}>
-          AI Confidence: {(latestRca.confidence * 100 || 0).toFixed(1)}%
-        </p>
-      </section>
+            <linearGradient id="ramGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={RAM_COLOR} stopOpacity={0.9} />
+              <stop offset="100%" stopColor={RAM_COLOR} stopOpacity={0.15} />
+            </linearGradient>
+          </defs>
 
-      {culprit && (
-        <section style={highlightBox}>
-          <h3 style={subTitleStyle}>
-            <span style={subTitleIcon}>🔥</span>
-            Primary Culprit
-          </h3>
+          <XAxis dataKey="t" tick={{ fill: SECONDARY, fontSize: 11 }} />
+          <YAxis domain={[0, 100]} tick={{ fill: SECONDARY }} />
 
-          <div style={culpritDetail}>
-            <strong style={culpritName}>{culprit.name}</strong>
-            <span style={mutedText}>(PID {culprit.pid})</span>
-          </div>
+          <Tooltip
+            contentStyle={{
+              backgroundColor: CARD_BG,
+              border: `1px solid ${BORDER_COLOR}`,
+            }}
+          />
+          <Legend />
 
-          {culprit.cmdline && (
-            <p style={cmdText}>{culprit.cmdline}</p>
-          )}
+          <Area
+            dataKey="cpu"
+            name="CPU %"
+            stroke={CPU_COLOR}
+            fill="url(#cpuGrad)"
+            dot={<SpikeDot />}
+            isAnimationActive={false}
+          />
 
-          <div style={metricsRow}>
-            <span style={metricData}>
-              CPU:{" "}
-              <span style={highlightData("cpu")}>
-                {culprit.cpu_pct?.toFixed(1)}%
-              </span>
-            </span>
+          <Area
+            dataKey="ram"
+            name="RAM %"
+            stroke={RAM_COLOR}
+            fill="url(#ramGrad)"
+            isAnimationActive={false}
+          />
 
-            <span style={metricData}>
-              RAM:{" "}
-              <span style={highlightData("ram")}>
-                {culprit.ram_pct?.toFixed(1)}%
-              </span>
-            </span>
-          </div>
-        </section>
-      )}
-
-      {impact && (
-        <section>
-          <h3 style={subTitleStyle}>
-            <span style={subTitleIcon}>📈</span>
-            Resource Impact
-          </h3>
-
-          <div style={metricsRow}>
-            <span style={metricData}>
-              System CPU Spike:{" "}
-              <span style={highlightData("cpu")}>
-                {impact.cpu_spike_percent?.toFixed(1)}%
-              </span>
-            </span>
-
-            <span style={metricData}>
-              System RAM Spike:{" "}
-              <span style={highlightData("ram")}>
-                {impact.ram_spike_percent?.toFixed(1)}%
-              </span>
-            </span>
-          </div>
-        </section>
-      )}
-
-      {latestRca.ranked_suspects?.length > 0 && (
-        <section>
-          <h3 style={subTitleStyle}>
-            <span style={subTitleIcon}>🕵️</span>
-            Other Suspects
-          </h3>
-
-          <ul style={listStyle}>
-            {latestRca.ranked_suspects.slice(0, 5).map((r, i) => (
-              <li key={i}>
-                PID {r.pid} – {r.name} (Score:{" "}
-                <span style={highlightData("score")}>
-                  {r.score?.toFixed(3)}
-                </span>
-                )
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {latestRca.recs?.length > 0 && (
-        <section>
-          <h3 style={subTitleStyle}>
-            <span style={subTitleIcon}>🛠️</span>
-            Recommendations
-          </h3>
-
-          <ul style={listStyle}>
-            {latestRca.recs.map((r, i) => (
-              <li key={i}>{r}</li>
-            ))}
-          </ul>
-        </section>
-      )}
+          <Brush stroke={PRIMARY} height={22} travellerWidth={10} />
+        </AreaChart>
+      </ResponsiveContainer>
     </div>
   );
-}
+};
 
-/* ================= ROUTER ================= */
+/* ==================================================
+   SPIKE DOT
+================================================== */
+
+const SpikeDot = ({ cx, cy, payload }) =>
+  payload?.spike ? (
+    <>
+      <circle r={7} cx={cx} cy={cy} fill={SPIKE_COLOR + "55"} />
+      <circle r={4} cx={cx} cy={cy} fill={SPIKE_COLOR} />
+    </>
+  ) : null;
+
+/* ==================================================
+   SPIKE TABLE
+================================================== */
+
+const SpikeTable = ({ spikes }) => (
+  <div style={cardStyle}>
+    <h3 style={{ marginBottom: "1rem" }}>Spike History</h3>
+
+    {!spikes.length ? (
+      <p style={{ color: SECONDARY }}>No spikes detected yet.</p>
+    ) : (
+      <div style={{ maxHeight: 280, overflowY: "auto" }}>
+        {spikes.map((s) => (
+          <div key={s.id} style={rowStyle}>
+            <Link to={`/spike/${s.id}`} style={{ color: PRIMARY }}>
+              #{s.id}
+            </Link>
+
+            <span style={{ color: CPU_COLOR }}>{s.cpu_at_confirm.toFixed(1)}%</span>
+            <span style={{ color: RAM_COLOR }}>{s.ram_at_confirm.toFixed(1)}%</span>
+
+            <span style={badgeStyle(s.rca)}>
+              {s.rca ? "RESOLVED" : "PENDING"}
+            </span>
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+);
+
+/* ==================================================
+   RCA PANEL
+================================================== */
+
+const RcaPanel = ({ latestRca }) => (
+  <div style={cardStyle}>
+    <h3>Latest RCA</h3>
+
+    {!latestRca ? (
+      <p style={{ color: SECONDARY }}>Awaiting RCA analysis...</p>
+    ) : (
+      <>
+        <p style={{ lineHeight: 1.5 }}>{latestRca.cause_summary}</p>
+
+        <div style={confidenceStyle}>
+          AI Confidence {(latestRca.confidence * 100).toFixed(1)}%
+        </div>
+      </>
+    )}
+  </div>
+);
+
+/* ==================================================
+   STYLES
+================================================== */
+
+const headerStyle = {
+  background: CARD_BG,
+  padding: "1.5rem",
+  borderRadius: 12,
+  border: `1px solid ${BORDER_COLOR}`,
+  marginBottom: "1.5rem",
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+};
+
+const liveBadgeStyle = {
+  padding: "6px 14px",
+  background: PRIMARY + "22",
+  borderRadius: 999,
+  color: PRIMARY,
+  fontWeight: 700,
+};
+
+const gridStyle = {
+  display: "grid",
+  gridTemplateColumns: "3fr 2fr",
+  gap: "1.5rem",
+  marginTop: "1.5rem",
+};
+
+const cardStyle = {
+  background: CARD_BG,
+  padding: "1.5rem",
+  borderRadius: 12,
+  border: `1px solid ${BORDER_COLOR}`,
+};
+
+const rowStyle = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr 1fr 1fr",
+  gap: "0.75rem",
+  padding: "8px 0",
+  borderBottom: `1px solid ${BORDER_COLOR}`,
+  alignItems: "center",
+};
+
+const badgeStyle = (rca) => ({
+  background: (rca ? PRIMARY : SPIKE_COLOR) + "22",
+  color: rca ? PRIMARY : SPIKE_COLOR,
+  padding: "3px 10px",
+  borderRadius: 999,
+  fontWeight: 700,
+  fontSize: "0.75rem",
+  textAlign: "center",
+});
+
+const confidenceStyle = {
+  marginTop: "1rem",
+  paddingTop: "1rem",
+  borderTop: `1px dashed ${BORDER_COLOR}`,
+  color: PRIMARY,
+  fontWeight: 700,
+};
+
+const footerStyle = {
+  marginTop: "3rem",
+  textAlign: "center",
+  color: SECONDARY,
+  fontSize: "0.9rem",
+};
+
+/* ==================================================
+   ROUTER
+================================================== */
 
 const App = () => (
   <Routes>
@@ -320,197 +351,5 @@ const App = () => (
     <Route path="/spike/:id" element={<SpikeDetail />} />
   </Routes>
 );
-
-/* ================= STYLES ================= */
-
-// Deloitte green + black theme
-const PRIMARY = "#43B02A";
-const SECONDARY = "#9CA3AF";
-const SUCCESS = "#43B02A";
-const DANGER = "#DC2626";
-const CPU_COLOR = "#16A34A";
-const RAM_COLOR = "#22C55E";
-
-const BASE_BG = "#000000";
-const CARD_BG = "#0B0F0C";
-const BORDER_COLOR = "#1F2937";
-
-const rootStyle = {
-  fontFamily: "Inter, system-ui, sans-serif",
-  background: BASE_BG,
-  color: "#e5e7eb",
-  minHeight: "100vh",
-  padding: "2rem",
-};
-
-const heroWrap = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  background: CARD_BG,
-  padding: "1.5rem 2rem",
-  borderRadius: "12px",
-  border: `1px solid ${BORDER_COLOR}`,
-  marginBottom: "2rem",
-};
-
-const titleStyle = { fontSize: "1.8rem", margin: 0 };
-const subtitleStyle = {
-  color: SECONDARY,
-  marginTop: "0.5rem",
-};
-const titleIcon = { marginRight: "8px", color: PRIMARY };
-
-const statusChip = {
-  background: PRIMARY + "22",
-  color: PRIMARY,
-  borderRadius: "999px",
-  padding: "6px 14px",
-  fontWeight: 700,
-  display: "flex",
-  alignItems: "center",
-};
-
-const pulseDot = {
-  width: "8px",
-  height: "8px",
-  borderRadius: "50%",
-  backgroundColor: PRIMARY,
-};
-
-const infoBox = (type) => ({
-  padding: "1rem",
-  borderRadius: "8px",
-  marginBottom: "1.5rem",
-  border: `1px solid ${type === "error" ? DANGER : PRIMARY}`,
-  background: type === "error" ? DANGER + "22" : PRIMARY + "22",
-  color: type === "error" ? DANGER : PRIMARY,
-});
-
-const gridStyle = {
-  display: "grid",
-  gridTemplateColumns: "3fr 2fr",
-  gap: "2rem",
-};
-
-const cardStyle = {
-  background: CARD_BG,
-  borderRadius: "12px",
-  border: `1px solid ${BORDER_COLOR}`,
-  padding: "1.5rem",
-};
-
-const cardTitle = {
-  fontSize: "1.25rem",
-  marginBottom: "1rem",
-  borderBottom: `1px solid ${BORDER_COLOR}`,
-  paddingBottom: "0.75rem",
-  display: "flex",
-  alignItems: "center",
-};
-
-const tableWrap = { maxHeight: "300px", overflowY: "auto" };
-const tableStyle = { width: "100%", borderCollapse: "collapse" };
-
-const thStyle = {
-  padding: "0.75rem",
-  color: SECONDARY,
-  borderBottom: `1px solid ${BORDER_COLOR}`,
-};
-
-const tdStyle = {
-  padding: "0.75rem",
-  borderBottom: `1px solid ${BORDER_COLOR}`,
-};
-
-const rowStyle = {};
-const linkStyle = {
-  color: PRIMARY,
-  fontWeight: 600,
-  textDecoration: "none",
-};
-
-const pillStyle = (type) => ({
-  background: PRIMARY + "22",
-  color: PRIMARY,
-  borderRadius: "999px",
-  padding: "4px 10px",
-  fontSize: "0.7rem",
-  fontWeight: 700,
-});
-
-const subTitleStyle = {
-  fontWeight: 600,
-  marginBottom: "0.5rem",
-  display: "flex",
-};
-
-const subTitleIcon = { marginRight: "6px", color: PRIMARY };
-
-const stack = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "1.5rem",
-};
-
-const highlightBox = {
-  border: `1px solid ${PRIMARY}40`,
-  borderRadius: "8px",
-  padding: "1rem",
-};
-
-const culpritDetail = {
-  display: "flex",
-  alignItems: "baseline",
-  gap: "8px",
-};
-
-const culpritName = { fontSize: "1.1rem", color: "#ffffff" };
-
-const metricsRow = {
-  display: "flex",
-  gap: "1.5rem",
-  marginTop: "0.5rem",
-};
-
-const metricData = {
-  fontSize: "0.85rem",
-  color: SECONDARY,
-};
-
-const highlightData = (type) => ({
-  color:
-    type === "cpu"
-      ? CPU_COLOR
-      : type === "ram"
-      ? RAM_COLOR
-      : PRIMARY,
-  fontWeight: 700,
-});
-
-const mutedText = { color: SECONDARY };
-const bodyText = { color: "#e5e7eb" };
-
-const confidenceText = {
-  color: SUCCESS,
-  fontWeight: 600,
-};
-
-const cmdText = {
-  color: SECONDARY,
-  fontSize: "0.8rem",
-  fontFamily: "monospace",
-};
-
-const listStyle = { paddingLeft: "1.25rem" };
-
-const footerStyle = {
-  marginTop: "2rem",
-  borderTop: `1px solid ${BORDER_COLOR}`,
-  paddingTop: "1rem",
-  textAlign: "center",
-  color: SECONDARY,
-  fontSize: "0.85rem",
-};
 
 export default App;

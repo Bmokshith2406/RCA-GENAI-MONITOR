@@ -2,6 +2,220 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 
 /* -----------------------------------
+ * STYLES REFACTOR & CONFIG (FIXED)
+ * ----------------------------------- */
+
+const PRIMARY_COLOR = "#43B02A"; // Success/Action color (Green)
+const SUCCESS_COLOR = "#22C55E";
+const WARNING_COLOR = "#FACC15";
+const DANGER_COLOR = "#DC2626";
+
+const CPU_COLOR = "#34D399"; // Brighter green for CPU
+const RAM_COLOR = "#60A5FA"; // Blue for RAM
+
+const BASE_BG = "#0A0A0A"; // Darker base
+const CARD_BG = "#1A1A1A"; // Card background
+const BORDER_COLOR = "#333333";
+const TEXT_LIGHT = "#E5E7EB";
+const TEXT_MUTED = "#9CA3AF";
+// FIX: Added the missing DARKER_BG definition
+const DARKER_BG = "#0B0F0C"; 
+
+const styles = {
+  // --- Page Layout ---
+  page: {
+    background: BASE_BG,
+    color: TEXT_LIGHT,
+    minHeight: "100vh",
+    padding: "2rem",
+    fontFamily: "Inter, system-ui, sans-serif",
+  },
+  header: {
+    marginBottom: "2rem",
+    borderBottom: `1px solid ${BORDER_COLOR}`,
+    paddingBottom: "1.5rem",
+  },
+  backLink: {
+    color: TEXT_MUTED,
+    textDecoration: "none",
+    fontSize: "0.9rem",
+    "&:hover": { color: PRIMARY_COLOR },
+  },
+  title: {
+    fontSize: "2.5rem",
+    margin: "0.5rem 0 0.25rem 0",
+    display: "flex",
+    alignItems: "center",
+  },
+  titleIcon: {
+    marginRight: "12px",
+    color: DANGER_COLOR, // Using DANGER for '💥' effect
+  },
+  subtitle: { color: TEXT_MUTED, margin: 0 },
+  
+  // --- Grid and Metrics ---
+  metricGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+    gap: "1.5rem",
+    marginBottom: "2rem",
+  },
+  metric: {
+    padding: "1rem",
+    borderRadius: "8px",
+    background: CARD_BG,
+    borderLeft: `4px solid`,
+    display: "flex",
+    flexDirection: "column",
+  },
+  metricLabel: {
+    fontSize: "0.85rem",
+    color: TEXT_MUTED,
+    marginBottom: "0.25rem",
+  },
+  metricValue: {
+    fontSize: "1.5rem",
+    fontWeight: 700,
+  },
+  
+  // --- Cards ---
+  card: {
+    borderRadius: "12px",
+    border: `1px solid ${BORDER_COLOR}`,
+    marginBottom: "1.5rem",
+    overflow: 'hidden', // Necessary for Raw ETW Card
+  },
+  cardTitle: {
+    display: "flex",
+    alignItems: "center",
+    fontSize: "1.2rem",
+    borderBottom: `1px solid ${BORDER_COLOR}55`,
+    padding: "0.5rem 1.5rem",
+    background: BORDER_COLOR + '33', // Slight shading for title bar
+    margin: 0,
+  },
+  cardTitleIcon: { marginRight: "10px" },
+  cardContent: (paddingOverride) => ({
+    padding: paddingOverride ? paddingOverride : "1.5rem",
+    lineHeight: 1.6,
+  }),
+  
+  // --- RCA Details ---
+  bodyText: { color: TEXT_LIGHT, margin: "0 0 1rem 0" },
+  confidence: {
+    borderTop: `1px dashed ${BORDER_COLOR}55`,
+    paddingTop: "1rem",
+    marginTop: "1rem",
+    color: TEXT_MUTED,
+  },
+  
+  // --- Culprit ---
+  culpritContainer: {
+    background: BASE_BG,
+    padding: "1rem",
+    borderRadius: "8px",
+    border: `1px solid ${BORDER_COLOR}55`,
+    marginBottom: "1rem",
+  },
+  culpritHeader: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: "10px",
+    marginBottom: "0.5rem",
+  },
+  culpritName: {
+    fontSize: "1.1rem",
+    color: PRIMARY_COLOR,
+  },
+  cmdText: {
+    fontSize: "0.8rem",
+    fontFamily: "monospace",
+    color: TEXT_MUTED,
+    margin: "0 0 0.75rem 0",
+    wordBreak: 'break-all',
+  },
+  culpritMetrics: {
+    display: "flex",
+    gap: "1rem",
+    fontSize: "0.9rem",
+  },
+  metricLabelValue: { color: TEXT_MUTED },
+  
+  // --- Suspects ---
+  list: {
+    listStyleType: "disc",
+    paddingLeft: "20px",
+    margin: 0,
+  },
+  
+  // --- Raw Data ---
+  rawHeader: {
+    fontSize: "1.8rem",
+    color: TEXT_LIGHT,
+    borderBottom: `1px solid ${BORDER_COLOR}`,
+    paddingBottom: "0.5rem",
+    marginBottom: "1.5rem",
+    marginTop: "3rem",
+  },
+  eventList: {
+    maxHeight: "400px",
+    overflowY: "auto",
+    padding: 0, // Card handles padding
+  },
+  eventBlock: {
+    margin: 0,
+    padding: "1rem 1.5rem",
+    fontSize: "0.7rem",
+    fontFamily: "monospace",
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-all",
+    background: DARKER_BG, // <-- This is where the error occurred
+    borderBottom: `1px solid ${BORDER_COLOR}55`,
+  },
+  codeBlock: {
+    margin: 0,
+    padding: "1.5rem",
+    fontSize: "0.75rem",
+    fontFamily: "monospace",
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-all",
+    color: WARNING_COLOR, // Highlight JSON slightly
+  },
+
+  // --- Helpers ---
+  mutedText: { color: TEXT_MUTED },
+  errorText: { color: DANGER_COLOR, padding: "2rem" },
+  loadingText: { color: WARNING_COLOR, padding: "2rem" },
+  highlightData: (type) => {
+    let color;
+    switch (type) {
+      case "cpu":
+        color = CPU_COLOR;
+        break;
+      case "ram":
+        color = RAM_COLOR;
+        break;
+      case "disk":
+        color = WARNING_COLOR;
+        break;
+      case "score":
+      case "confidence":
+        color = PRIMARY_COLOR;
+        break;
+      default:
+        color = TEXT_LIGHT;
+    }
+    return { fontWeight: 700, color: color };
+  },
+};
+
+// Helper function to resolve styles
+const style = (name) => styles[name];
+const highlightData = (type) => styles.highlightData(type);
+const cardContentStyle = (paddingOverride) => styles.cardContent(paddingOverride);
+
+
+/* -----------------------------------
  * HELPER FUNCTIONS
  * ----------------------------------- */
 
@@ -17,10 +231,12 @@ function formatTimestamp(isoString) {
       second: "2-digit",
       hour12: false,
     });
+
     const dateOnly = date.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
     });
+
     return `${dateOnly} @ ${timeOnly}`;
   } catch {
     return isoString;
@@ -28,7 +244,7 @@ function formatTimestamp(isoString) {
 }
 
 function formatBytes(bytes) {
-  if (!bytes && bytes !== 0) return "—";
+  if (bytes === null || bytes === undefined || isNaN(bytes) || bytes < 0) return "—";
   if (bytes === 0) return "0 B";
 
   const k = 1024;
@@ -43,28 +259,35 @@ function formatBytes(bytes) {
 
 function Metric({ label, value, accent }) {
   return (
-    <div style={{ ...metricStyle, borderLeftColor: accent }}>
-      <span style={metricLabelStyle}>{label}</span>
-      <strong style={{ ...metricValueStyle, color: accent }}>{value}</strong>
+    <div style={{ ...style('metric'), borderLeftColor: accent || PRIMARY_COLOR }}>
+      <span style={style('metricLabel')}>{label}</span>
+      <strong style={{ ...style('metricValue'), color: accent || PRIMARY_COLOR }}>
+        {value}
+      </strong>
     </div>
   );
 }
 
 function Card({ title, children, highlight, icon }) {
+  // Determine if padding should be zero (for raw data lists/blocks)
+  const isRawDataCard = title.includes("Raw ETW Events") || title.includes("JSON Payload");
+  
   return (
     <section
       style={{
-        ...cardStyle,
+        ...style('card'),
         borderLeftColor: highlight ? PRIMARY_COLOR : BORDER_COLOR,
         background: highlight ? `${BASE_BG}e6` : CARD_BG,
-        padding: title === "Raw ETW Events" ? "0" : "1.5rem",
       }}
     >
-      <h3 style={cardTitleStyle}>
-        <span style={cardTitleIcon}>{icon}</span>
+      <h3 style={style('cardTitle')}>
+        <span style={style('cardTitleIcon')}>{icon}</span>
         {title}
       </h3>
-      <div style={cardContentStyle(title)}>{children}</div>
+
+      <div style={isRawDataCard ? cardContentStyle("0") : cardContentStyle()}>
+        {children}
+      </div>
     </section>
   );
 }
@@ -73,26 +296,41 @@ function CulpritDetails({ culprit }) {
   if (!culprit || !culprit.pid) return null;
 
   return (
-    <div style={culpritContainerStyle}>
-      <div style={culpritHeaderStyle}>
-        <strong style={culpritNameStyle}>{culprit.name}</strong>
-        <span style={mutedTextStyle}>(PID {culprit.pid})</span>
+    <div style={style('culpritContainer')}>
+      <div style={style('culpritHeader')}>
+        <strong style={style('culpritName')}>{culprit.name}</strong>
+        <span style={style('mutedText')}>(PID {culprit.pid})</span>
       </div>
 
-      {culprit.cmdline && <p style={cmdTextStyle}>{culprit.cmdline}</p>}
+      {culprit.cmdline && <p style={style('cmdText')}>{culprit.cmdline}</p>}
 
-      <div style={culpritMetricsStyle}>
-        <span style={metricLabelValueStyle}>
-          CPU: <span style={highlightData("cpu")}>{culprit.cpu_pct?.toFixed(1) || "?"}%</span>
+      <div style={style('culpritMetrics')}>
+        <span style={style('metricLabelValue')}>
+          CPU:{" "}
+          <span style={highlightData("cpu")}>
+            {typeof culprit.cpu_pct === "number"
+              ? culprit.cpu_pct.toFixed(1)
+              : "?"}
+            %
+          </span>
         </span>
 
-        <span style={metricLabelValueStyle}>
-          RAM: <span style={highlightData("ram")}>{culprit.ram_pct?.toFixed(1) || "?"}%</span>
+        <span style={style('metricLabelValue')}>
+          RAM:{" "}
+          <span style={highlightData("ram")}>
+            {typeof culprit.ram_pct === "number"
+              ? culprit.ram_pct.toFixed(1)
+              : "?"}
+            %
+          </span>
         </span>
 
-        {culprit.disk_bytes && (
-          <span style={metricLabelValueStyle}>
-            Disk: <span style={highlightData("disk")}>{formatBytes(culprit.disk_bytes)}</span>
+        {culprit.disk_bytes !== null && culprit.disk_bytes !== undefined && (
+          <span style={style('metricLabelValue')}>
+            Disk:{" "}
+            <span style={highlightData("disk")}>
+              {formatBytes(culprit.disk_bytes)}
+            </span>
           </span>
         )}
       </div>
@@ -115,7 +353,8 @@ export default function SpikeDetail() {
     setError(null);
     try {
       const res = await fetch(`/api/spikes/${id}`);
-      if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`);
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+
       const data = await res.json();
       setSpike(data);
     } catch (e) {
@@ -130,45 +369,51 @@ export default function SpikeDetail() {
     fetchData();
   }, [fetchData]);
 
-  if (error)
-    return <div style={errorTextStyle}>API ERROR: {error}</div>;
+  if (error) return <div style={style('errorText')}>API ERROR: {error}</div>;
 
   if (loading || !spike)
-    return <div style={loadingTextStyle}>Loading incident spike #{id} data…</div>;
+    return <div style={style('loadingText')}>Loading spike #{id} details…</div>;
 
   const rca = spike.rca || {};
   const culprit = rca.culprit_process || {};
   const impact = rca.resource_impact || {};
 
   return (
-    <div style={pageStyle}>
-      <header style={headerStyle}>
-        <Link to="/" style={backLinkStyle}>
-          ← Return to Dashboard
-        </Link>
+    <div style={style('page')}>
+      <header style={style('header')}>
+        <Link to="/" style={style('backLink')}>← Return to Dashboard</Link>
 
-        <h1 style={titleStyle}>
-          <span style={titleIconStyle}>💥</span>
+        <h1 style={style('title')}>
+          <span style={style('titleIcon')}>#</span>
           Incident Spike #{spike.id}
         </h1>
 
-        <p style={subtitleStyle}>
+        <p style={style('subtitle')}>
           Detected at: {formatTimestamp(spike.detected_at)}
         </p>
       </header>
 
-      {/* KEY METRICS */}
-      <div style={metricGridStyle}>
+      <div style={style('metricGrid')}>
         <Metric
           label="Max CPU %"
-          value={`${spike.cpu_at_confirm?.toFixed?.(1) || "?"}%`}
+          value={
+            typeof spike.cpu_at_confirm === "number"
+              ? `${spike.cpu_at_confirm.toFixed(1)}%`
+              : "?"
+          }
           accent={CPU_COLOR}
         />
+
         <Metric
           label="Max RAM %"
-          value={`${spike.ram_at_confirm?.toFixed?.(1) || "?"}%`}
+          value={
+            typeof spike.ram_at_confirm === "number"
+              ? `${spike.ram_at_confirm.toFixed(1)}%`
+              : "?"
+          }
           accent={RAM_COLOR}
         />
+
         <Metric
           label="RCA Status"
           value={rca.cause_summary ? "RESOLVED" : "PENDING"}
@@ -176,13 +421,12 @@ export default function SpikeDetail() {
         />
       </div>
 
-      {/* RCA SUMMARY */}
       <Card title="Root Cause Analysis Summary" icon="🧠">
-        <p style={bodyTextStyle}>
+        <p style={style('bodyText')}>
           {rca.cause_summary || "RCA is currently pending for this spike."}
         </p>
 
-        <p style={confidenceStyle}>
+        <p style={style('confidence')}>
           AI Confidence:{" "}
           <strong style={highlightData("confidence")}>
             {typeof rca.confidence === "number"
@@ -193,14 +437,13 @@ export default function SpikeDetail() {
         </p>
       </Card>
 
-      {/* PRIMARY CULPRIT */}
       {culprit?.pid && (
-        <Card title="Primary Culprit Process" highlight icon="🔥">
+        <Card title="Primary Culprit Process" highlight icon="💥">
           <CulpritDetails culprit={culprit} />
 
           {impact?.cpu_spike_percent && (
-            <p style={mutedTextStyle}>
-              This process was responsible for{" "}
+            <p style={style('mutedText')}>
+              Responsible for{" "}
               <span style={highlightData("cpu")}>
                 {impact.cpu_spike_percent.toFixed(1)}%
               </span>{" "}
@@ -210,380 +453,45 @@ export default function SpikeDetail() {
         </Card>
       )}
 
-      {/* RANKED SUSPECTS */}
-      {Array.isArray(rca.ranked_suspects) &&
-        rca.ranked_suspects.length > 0 && (
-          <Card title="Ranked Suspects" icon="🕵️">
-            <ul style={listStyle}>
-              {rca.ranked_suspects.map((p, i) => (
-                <li key={i}>
-                  PID {p.pid} – {p.name} (Score:{" "}
-                  <span style={highlightData("score")}>
-                    {typeof p.score === "number"
-                      ? p.score.toFixed(3)
-                      : "?"}
-                  </span>
-                  )
-                </li>
-              ))}
-            </ul>
-          </Card>
-        )}
-
-      {/* NETWORK CONTEXT */}
-      {rca.net_context?.top_connections?.length > 0 && (
-        <Card title="Top Network Activity Context" icon="🌐">
-          <div style={networkListStyle}>
-            {rca.net_context.top_connections.map((c, i) => (
-              <div key={i} style={netRowStyle}>
-                <span style={netArrowStyle}>→</span>
-                <strong style={netPidStyle}>PID {c.pid ?? "?"}</strong>
-
-                <span style={netTargetStyle}>
-                  {c.daddr}
-                  {c.dport ? `:${c.dport}` : ""}
+      {Array.isArray(rca.ranked_suspects) && rca.ranked_suspects.length > 0 && (
+        <Card title="Ranked Suspects" icon="🕵️">
+          <ul style={style('list')}>
+            {rca.ranked_suspects.map((p, i) => (
+              <li key={`${p.pid}-${i}`}>
+                PID {p.pid} – {p.name} (Score:{" "}
+                <span style={highlightData("score")}>
+                  {typeof p.score === "number" ? p.score.toFixed(3) : "?"}
                 </span>
-
-                {typeof c.bytes_transferred === "number" && (
-                  <span style={netBytesStyle}>
-                    ({formatBytes(c.bytes_transferred)} transferred)
-                  </span>
-                )}
-              </div>
+                )
+              </li>
             ))}
-          </div>
+          </ul>
         </Card>
       )}
 
-      {/* TIMELINE */}
-      {Array.isArray(rca.timeline) &&
-        rca.timeline.length > 0 && (
-          <Card
-            title={`Spike Event Timeline (${rca.timeline.length} events)`}
-            icon="🕰️"
-          >
-            <div style={tableWrapStyle}>
-              <table style={tableStyle}>
-                <thead>
-                  <tr>
-                    <th style={{ ...thStyle, minWidth: "100px" }}>
-                      Time
-                    </th>
-                    <th style={thStyle}>Event Type</th>
-                    <th style={{ ...thStyle, minWidth: "300px" }}>
-                      Details / Reason
-                    </th>
-                  </tr>
-                </thead>
+      <h2 style={style('rawHeader')}>Raw Telemetry & RCA Data</h2>
 
-                <tbody>
-                  {rca.timeline.map((t, i) => (
-                    <tr key={i} style={rowStyle}>
-                      <td style={tdMonoStyle}>{t.ts}</td>
-                      <td style={tdStyle}>{t.event_type}</td>
-                      <td style={tdStyle}>
-                        {t.details || t.reason || "-"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        )}
-
-      {/* RAW DATA */}
-      <h2 style={rawHeaderStyle}>
-        Raw Telemetry and Analysis Data
-      </h2>
-
-      <Card
-        title={`Raw ETW Events Sample (First 100 of ${
-          spike.etw_events?.length || 0
-        })`}
-        icon="💻"
-      >
-        <div style={eventListStyle}>
-          {(spike.etw_events || []).slice(0, 100).map((ev, idx) => (
-            <pre key={idx} style={eventBlockStyle}>
-              {JSON.stringify(ev, null, 2)}
-            </pre>
-          ))}
+      <Card title={`Raw ETW Events (Sample)`} icon="💻">
+        <div style={style('eventList')}>
+          {(spike.etw_events || []).slice(0, 100).map((ev, idx) => {
+            let json = "[Unserializable event]";
+            try {
+              json = JSON.stringify(ev, null, 2);
+            } catch {}
+            return (
+              <pre key={`${idx}-${ev?.ts || "ev"}`} style={style('eventBlock')}>
+                {json}
+              </pre>
+            );
+          })}
         </div>
       </Card>
 
       <Card title="Full RCA JSON Payload" icon="📄">
-        <pre style={codeBlockStyle}>
+        <pre style={style('codeBlock')}>
           {JSON.stringify(spike.rca, null, 2)}
         </pre>
       </Card>
     </div>
   );
 }
-
-/* ===================== STYLES ===================== */
-
-/* Deloitte Green Theme */
-const PRIMARY_COLOR = "#43B02A";
-const SECONDARY_COLOR = "#9CA3AF";
-const SUCCESS_COLOR = "#43B02A";
-const WARNING_COLOR = "#FACC15";
-
-const CPU_COLOR = "#16A34A";
-const RAM_COLOR = "#22C55E";
-const DISK_COLOR = "#4ADE80";
-
-const BASE_BG = "#000000";
-const CARD_BG = "#0B0F0C";
-const BORDER_COLOR = "#1F2937";
-
-/* Layout */
-const pageStyle = {
-  background: BASE_BG,
-  minHeight: "100vh",
-  padding: "2.5rem",
-  color: "#E5E7EB",
-  fontFamily: "Inter, system-ui, sans-serif",
-};
-
-const headerStyle = {
-  marginBottom: "2rem",
-  borderBottom: `1px solid ${BORDER_COLOR}`,
-  paddingBottom: "1rem",
-};
-
-const titleStyle = {
-  fontSize: "2rem",
-  marginTop: "0.5rem",
-  display: "flex",
-  alignItems: "center",
-};
-
-const titleIconStyle = {
-  marginRight: "10px",
-  color: PRIMARY_COLOR,
-  fontSize: "1.8rem",
-};
-
-const subtitleStyle = {
-  color: SECONDARY_COLOR,
-  marginTop: "0.3rem",
-};
-
-const backLinkStyle = {
-  color: PRIMARY_COLOR,
-  textDecoration: "none",
-  fontSize: "0.85rem",
-  fontWeight: 600,
-};
-
-/* Metrics */
-const metricGridStyle = {
-  display: "grid",
-  gap: "1.5rem",
-  gridTemplateColumns: "repeat(3, 1fr)",
-  marginBottom: "2rem",
-};
-
-const metricStyle = {
-  background: CARD_BG,
-  borderLeft: "5px solid",
-  borderRadius: "8px",
-  padding: "1rem 1.25rem",
-};
-
-const metricLabelStyle = {
-  color: SECONDARY_COLOR,
-  fontSize: "0.8rem",
-  textTransform: "uppercase",
-};
-
-const metricValueStyle = {
-  fontSize: "1.75rem",
-  fontWeight: 700,
-};
-
-/* Cards */
-const cardStyle = {
-  background: CARD_BG,
-  borderLeft: `5px solid ${BORDER_COLOR}`,
-  borderRadius: "12px",
-  marginBottom: "1.5rem",
-};
-
-const cardTitleStyle = {
-  fontSize: "1.15rem",
-  fontWeight: 700,
-  marginBottom: "1rem",
-  borderBottom: `1px dashed ${BORDER_COLOR}`,
-  display: "flex",
-  alignItems: "center",
-  paddingBottom: "0.75rem",
-};
-
-const cardTitleIcon = {
-  marginRight: "8px",
-  color: PRIMARY_COLOR,
-};
-
-const cardContentStyle = () => ({
-  paddingTop: "0.5rem",
-});
-
-/* Text */
-const bodyTextStyle = { color: "#E5E7EB" };
-const confidenceStyle = { color: SUCCESS_COLOR, marginTop: "1rem" };
-const mutedTextStyle = { color: SECONDARY_COLOR };
-const listStyle = { paddingLeft: "1.25rem" };
-
-/* Culprit */
-const culpritContainerStyle = {
-  background: BASE_BG,
-  borderRadius: "6px",
-  padding: "1rem",
-  border: `1px solid ${PRIMARY_COLOR}40`,
-};
-
-const culpritHeaderStyle = {
-  display: "flex",
-  gap: "8px",
-};
-
-const culpritNameStyle = {
-  fontSize: "1.1rem",
-  color: "#ffffff",
-};
-
-const culpritMetricsStyle = {
-  display: "flex",
-  gap: "1.5rem",
-  marginTop: "0.75rem",
-};
-
-const metricLabelValueStyle = {
-  fontSize: "0.9rem",
-  color: SECONDARY_COLOR,
-};
-
-const cmdTextStyle = {
-  color: SECONDARY_COLOR,
-  fontSize: "0.75rem",
-  fontFamily: "monospace",
-};
-
-const highlightData = type => ({
-  color:
-    type === "cpu"
-      ? CPU_COLOR
-      : type === "ram"
-      ? RAM_COLOR
-      : type === "disk"
-      ? DISK_COLOR
-      : type === "confidence"
-      ? SUCCESS_COLOR
-      : type === "score"
-      ? WARNING_COLOR
-      : PRIMARY_COLOR,
-  fontWeight: 700,
-});
-
-/* Network */
-const networkListStyle = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "8px",
-};
-
-const netRowStyle = {
-  background: BASE_BG,
-  borderLeft: `3px solid ${PRIMARY_COLOR}`,
-  padding: "6px 10px",
-  borderRadius: "4px",
-  display: "flex",
-  gap: "8px",
-  fontFamily: "monospace",
-};
-
-const netArrowStyle = { color: PRIMARY_COLOR };
-const netPidStyle = { color: WARNING_COLOR };
-const netTargetStyle = {
-  color: SUCCESS_COLOR,
-  flexGrow: 1,
-};
-
-const netBytesStyle = {
-  color: SECONDARY_COLOR,
-  fontSize: "0.75rem",
-};
-
-/* Table */
-const tableWrapStyle = {
-  maxHeight: "350px",
-  overflowY: "auto",
-};
-
-const tableStyle = {
-  width: "100%",
-  borderCollapse: "collapse",
-};
-
-const thStyle = {
-  color: SECONDARY_COLOR,
-  borderBottom: `1px solid ${BORDER_COLOR}`,
-  padding: "0.5rem 0",
-  textTransform: "uppercase",
-};
-
-const tdStyle = {
-  padding: "0.75rem 0",
-  borderBottom: `1px dashed ${BORDER_COLOR}60`,
-};
-
-const tdMonoStyle = {
-  ...tdStyle,
-  fontFamily: "monospace",
-  color: PRIMARY_COLOR,
-};
-
-const rowStyle = {};
-
-/* Raw Data */
-const rawHeaderStyle = {
-  color: PRIMARY_COLOR,
-  marginTop: "2.5rem",
-};
-
-const eventListStyle = {
-  maxHeight: "30vh",
-  overflowY: "auto",
-};
-
-const eventBlockStyle = {
-  background: BASE_BG,
-  padding: "0.75rem 1.5rem",
-  borderBottom: `1px solid ${BORDER_COLOR}`,
-  fontSize: "0.65rem",
-  color: SECONDARY_COLOR,
-  fontFamily: "monospace",
-};
-
-const codeBlockStyle = {
-  background: BASE_BG,
-  border: `1px dashed ${BORDER_COLOR}`,
-  padding: "1.25rem",
-  fontSize: "0.75rem",
-  overflowX: "auto",
-};
-
-/* States */
-const errorTextStyle = {
-  color: "#EF4444",
-  padding: "2rem",
-  background: CARD_BG,
-};
-
-const loadingTextStyle = {
-  color: PRIMARY_COLOR,
-  padding: "2rem",
-  background: CARD_BG,
-};
